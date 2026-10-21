@@ -1,0 +1,49 @@
+name: Publicar en GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar el sitio
+        run: sh web/build.sh
+      - name: Configurar Supabase (si definiste las variables del repositorio)
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          COMPANY_NAME: ${{ vars.NEXOSALDO_COMPANY_NAME }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            python3 - <<'PY'
+          import json, os
+          cfg = {"supabaseUrl": os.environ["SUPABASE_URL"].strip(), "supabaseAnonKey": os.environ["SUPABASE_ANON_KEY"].strip(),
+                 "companyName": (os.environ.get("COMPANY_NAME") or "Mi empresa").strip()}
+          open("site/config.js", "w").write("window.NEXOSALDO_CONFIG = " + json.dumps(cfg) + ";\n")
+          PY
+            echo "Modo Supabase activado"
+          else
+            echo "Sin variables de Supabase: el sitio funcionará en modo local"
+          fi
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

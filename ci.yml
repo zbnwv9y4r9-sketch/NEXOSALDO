@@ -1,0 +1,60 @@
+name: Pruebas
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  python-y-base-de-datos:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      NEXOSALDO_TEST_PG: "-h localhost -p 5432 -U postgres"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install reportlab pdfplumber
+      - name: Lógica financiera, PDF, PostgreSQL (RLS) y esquema de Supabase
+        run: python -m unittest discover -s tests -t . -v
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pdfplumber
+      - name: Instalar herramientas de prueba
+        run: |
+          mkdir -p /tmp/tools && cd /tmp/tools && npm init -y >/dev/null
+          npm install pdf-lib@1.17.1 playwright@1.47.2
+          npx playwright install --with-deps chromium
+      - name: Compilar la app
+        run: sh web/build.sh
+      - name: Paridad de fórmulas (JS)
+        run: node --test web/tests/finance.test.js
+      - name: PDF real sin datos internos
+        env:
+          PDFLIB: /tmp/tools/node_modules/pdf-lib
+        run: node web/tests/pdf.test.js /tmp && python web/tests/check_pdf.py /tmp
+      - name: Recorridos de usuario (Chromium)
+        env:
+          PLAYWRIGHT: /tmp/tools/node_modules/playwright
+          PDFLIB_MIN: /tmp/tools/node_modules/pdf-lib/dist/pdf-lib.min.js
+        run: |
+          node web/tests/ui.e2e.js /tmp
+          node web/tests/site.e2e.js /tmp
